@@ -23,6 +23,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import com.github.muellerma.nfcreader.ConnectionSettingsStore
 import com.github.muellerma.nfcreader.R
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
@@ -39,7 +40,10 @@ class UriRecord private constructor(private val uri: Uri) : ParsedNdefRecord {
         offset: Int
     ): View {
         val text = inflater.inflate(R.layout.tag_text, parent, false) as TextView
-        text.autoLinkMask = Linkify.WEB_URLS or Linkify.EMAIL_ADDRESSES or Linkify.PHONE_NUMBERS
+        val settings = ConnectionSettingsStore.load(activity)
+        if (!settings.offlineModeEnabled) {
+            text.autoLinkMask = Linkify.WEB_URLS or Linkify.EMAIL_ADDRESSES or Linkify.PHONE_NUMBERS
+        }
         text.text = uri.toString()
         return text
     }

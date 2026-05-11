@@ -28,7 +28,6 @@
                 android:layout_height="wrap_content"
                 android:padding="16dp"
                 android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                android:autoLink="email|web"
                 android:text="@string/intro_message" />
     </LinearLayout>
 </ScrollView>

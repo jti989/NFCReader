@@ -5,4 +5,8 @@
             android:id="@+id/menu_main_clear"
             app:showAsAction="never"
             android:title="@string/clear_all" />
+    <item
+            android:id="@+id/menu_main_connection"
+            app:showAsAction="never"
+            android:title="@string/connection_settings" />
 </menu>

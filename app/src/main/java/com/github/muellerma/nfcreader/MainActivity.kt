@@ -17,20 +17,29 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.github.muellerma.nfcreader.record.ParsedNdefRecord
+import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
     private var tagList: LinearLayout? = null
     private var nfcAdapter: NfcAdapter? = null
+    private lateinit var connectionSettings: ConnectionSettings
+    private lateinit var mqttExecutor: ExecutorService
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         tagList = findViewById<View>(R.id.list) as LinearLayout
+        connectionSettings = ConnectionSettingsStore.load(this)
+        mqttExecutor = Executors.newSingleThreadExecutor()
         resolveIntent(intent)
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         if (nfcAdapter == null) {
@@ -56,6 +65,11 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         nfcAdapter?.disableForegroundDispatch(this)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mqttExecutor.shutdown()
     }
 
     public override fun onNewIntent(intent: Intent) {
@@ -90,7 +104,7 @@ class MainActivity : AppCompatActivity() {
             NfcAdapter.ACTION_NDEF_DISCOVERED
         )
         if (intent.action in validActions) {
-            // TODO
+            val detectedTag = intent.parcelable<Tag>(NfcAdapter.EXTRA_TAG)
             val rawMsgs = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES)
             val messages = mutableListOf<NdefMessage>()
             if (rawMsgs != null) {
@@ -101,15 +115,64 @@ class MainActivity : AppCompatActivity() {
                 // Unknown tag type
                 val empty = ByteArray(0)
                 val id = intent.getByteArrayExtra(NfcAdapter.EXTRA_ID)
-                val tag = intent.parcelable<Tag>(NfcAdapter.EXTRA_TAG) ?: return
+                val tag = detectedTag ?: return
                 val payload = dumpTagData(tag).toByteArray()
                 val record = NdefRecord(NdefRecord.TNF_UNKNOWN, empty, id, payload)
                 val msg = NdefMessage(arrayOf(record))
                 messages.add(msg)
             }
+            maybePublishTagContent(messages, detectedTag)
             // Setup the views
             buildTagViews(messages)
         }
+    }
+
+    private fun maybePublishTagContent(messages: List<NdefMessage>, tag: Tag?) {
+        if (connectionSettings.offlineModeEnabled || !connectionSettings.mqttEnabled) {
+            return
+        }
+        if (connectionSettings.mqttBrokerUri.isBlank() || connectionSettings.mqttTopic.isBlank()) {
+            return
+        }
+        val payload = buildMqttPayload(messages, tag)
+        mqttExecutor.execute {
+            try {
+                MqttPublisher.publish(
+                    brokerUri = connectionSettings.mqttBrokerUri,
+                    topic = connectionSettings.mqttTopic,
+                    payload = payload
+                )
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.mqtt_publish_failed, e.localizedMessage ?: "unknown"),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun buildMqttPayload(messages: List<NdefMessage>, tag: Tag?): String {
+        val lines = mutableListOf<String>()
+        lines.add("timestamp=${System.currentTimeMillis()}")
+        tag?.let {
+            lines.add("tag_id_hex=${toReversedHex(it.id)}")
+            lines.add("tag_tech=${it.techList.joinToString(",")}")
+        }
+        messages.forEachIndexed { messageIndex, message ->
+            message.records.forEachIndexed { recordIndex, record ->
+                lines.add(
+                    "message_${messageIndex}_record_${recordIndex}=" +
+                            "tnf:${record.tnf}," +
+                            "type:${toReversedHex(record.type)}," +
+                            "id:${toReversedHex(record.id)}," +
+                            "payload:${toReversedHex(record.payload)}"
+                )
+            }
+        }
+        return lines.joinToString(separator = "\n")
     }
 
     private fun dumpTagData(tag: Tag): String {
@@ -242,8 +305,62 @@ class MainActivity : AppCompatActivity() {
                 clearTags()
                 true
             }
+            R.id.menu_main_connection -> {
+                showConnectionSettingsDialog()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun showConnectionSettingsDialog() {
+        val currentSettings = ConnectionSettingsStore.load(this)
+        val contentView = layoutInflater.inflate(R.layout.dialog_connection_settings, null)
+        val offlineSwitch = contentView.findViewById<SwitchMaterial>(R.id.switch_offline_mode)
+        val mqttSwitch = contentView.findViewById<SwitchMaterial>(R.id.switch_mqtt_enabled)
+        val mqttBrokerInput = contentView.findViewById<TextInputEditText>(R.id.input_mqtt_broker)
+        val mqttTopicInput = contentView.findViewById<TextInputEditText>(R.id.input_mqtt_topic)
+
+        offlineSwitch.isChecked = currentSettings.offlineModeEnabled
+        mqttSwitch.isChecked = currentSettings.mqttEnabled
+        mqttSwitch.isEnabled = !offlineSwitch.isChecked
+        mqttBrokerInput.setText(currentSettings.mqttBrokerUri)
+        mqttTopicInput.setText(currentSettings.mqttTopic)
+
+        val updateInputs = {
+            val enabled = mqttSwitch.isChecked && !offlineSwitch.isChecked
+            mqttBrokerInput.isEnabled = enabled
+            mqttTopicInput.isEnabled = enabled
+        }
+        updateInputs()
+
+        offlineSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                mqttSwitch.isChecked = false
+            }
+            mqttSwitch.isEnabled = !isChecked
+            updateInputs()
+        }
+        mqttSwitch.setOnCheckedChangeListener { _, _ ->
+            updateInputs()
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.connection_settings)
+            .setView(contentView)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val newSettings = ConnectionSettings(
+                    offlineModeEnabled = offlineSwitch.isChecked,
+                    mqttEnabled = mqttSwitch.isChecked && !offlineSwitch.isChecked,
+                    mqttBrokerUri = mqttBrokerInput.text?.toString()?.trim().orEmpty(),
+                    mqttTopic = mqttTopicInput.text?.toString()?.trim().orEmpty()
+                )
+                ConnectionSettingsStore.save(this, newSettings)
+                connectionSettings = newSettings
+                Toast.makeText(this, R.string.mqtt_settings_saved, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun clearTags() {
