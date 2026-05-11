@@ -128,7 +128,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun maybePublishTagContent(messages: List<NdefMessage>, tag: Tag?) {
-        connectionSettings = ConnectionSettingsStore.load(this)
         if (connectionSettings.offlineModeEnabled || !connectionSettings.mqttEnabled) {
             return
         }
@@ -323,7 +322,7 @@ class MainActivity : AppCompatActivity() {
         val mqttTopicInput = contentView.findViewById<TextInputEditText>(R.id.input_mqtt_topic)
 
         offlineSwitch.isChecked = currentSettings.offlineModeEnabled
-        mqttSwitch.isChecked = currentSettings.mqttEnabled && !currentSettings.offlineModeEnabled
+        mqttSwitch.isChecked = currentSettings.mqttEnabled
         mqttSwitch.isEnabled = !offlineSwitch.isChecked
         mqttBrokerInput.setText(currentSettings.mqttBrokerUri)
         mqttTopicInput.setText(currentSettings.mqttTopic)
