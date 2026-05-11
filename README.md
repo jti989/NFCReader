@@ -5,6 +5,12 @@
 [![Crowdin](https://badges.crowdin.net/nfc-reader/localized.svg)](https://crowdin.com/project/nfc-reader)
 
 This is a simple app to read various tags (NDEF, RFID, FeliCa, ISO 14443, etc).
+By default, the app runs in offline mode (no network actions).
+
+## MQTT forwarding
+
+You can optionally enable MQTT forwarding in `Connection settings`.
+When enabled, the app publishes the detected tag content immediately after tag discovery.
 
 It has been forked from https://github.com/nadam/nfc-reader.
 Differences between the original app and this fork:

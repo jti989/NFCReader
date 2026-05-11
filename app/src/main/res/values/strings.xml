@@ -8,4 +8,13 @@
     <string name="no_nfc">NFC isn\'t supported on this device</string>
     <string name="clear_all">Clear all</string>
     <string name="close_app">Close app</string>
+    <string name="connection_settings">Connection settings</string>
+    <string name="offline_mode">Offline mode (no network actions)</string>
+    <string name="mqtt_enabled">Send tag content via MQTT</string>
+    <string name="mqtt_broker">MQTT broker URI (e.g. tcp://192.168.1.10:1883)</string>
+    <string name="mqtt_topic">MQTT topic</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="mqtt_settings_saved">Connection settings saved</string>
+    <string name="mqtt_publish_failed">MQTT publish failed: %1$s</string>
 </resources>
